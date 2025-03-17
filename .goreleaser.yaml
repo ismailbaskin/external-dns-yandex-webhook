@@ -1,0 +1,87 @@
+version: 2
+project_name: external-dns-yandex-webhook
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: external-dns-yandex-webhook
+    dir: .
+    main: ./cmd/webhook/
+    binary: external-dns-yandex-webhook
+    env:
+      - CGO_ENABLED=0 # build a static binary without C dependencies
+    flags:
+      - -v
+      - -a
+    ldflags:
+      - -X main.version={{ .Version }} -X main.commit={{ .Commit }}
+    goos:
+      - darwin
+      - freebsd
+      - linux
+    goarch:
+      - amd64
+      - arm
+      - arm64
+    goarm:
+      - "5"
+      - "6"
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+
+dockers:
+  - ids:
+      - external-dns-yandex-webhook
+    image_templates:
+      - ghcr.io/ismailbaskin/{{ .ProjectName }}:{{ .Version }}-amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: goreleaser.dockerfile
+    build_flag_templates:
+      - "--build-arg=BINARY_NAME={{ .ProjectName }}"
+      - "--platform=linux/amd64"
+    use: buildx
+  - ids:
+      - external-dns-yandex-webhook
+    image_templates:
+      - ghcr.io/ismailbaskin/{{ .ProjectName }}:{{ .Version }}-arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: goreleaser.dockerfile
+    build_flag_templates:
+      - "--build-arg=BINARY_NAME={{ .ProjectName }}"
+      - "--platform=linux/arm64"
+    use: buildx
+
+docker_manifests:
+  - name_template: "ghcr.io/ismailbaskin/{{ .ProjectName }}:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/ismailbaskin/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "ghcr.io/ismailbaskin/{{ .ProjectName }}:{{ .Version }}-arm64"
+
+archives:
+  - name_template: "{{ .ProjectName }}-{{ .Version }}.{{ .Os }}-{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    formats:
+      - tar.gz
+    wrap_in_directory: true
+
+checksum:
+  name_template: "{{ .ProjectName }}-{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+# Configuration for GitHub Releases
+release:
+  github:
+    owner: ismailbaskin
+    name: external-dns-yandex-webhook
+  footer: |
+    ## Docker Images
+    - ghcr.io/ismailbaskin/external-dns-yandex-webhook:{{ trimprefix .Tag "v" }} (universal, multi-platform)
+    - ghcr.io/ismailbaskin/external-dns-yandex-webhook:{{ trimprefix .Tag "v" }}-amd64
+    - ghcr.io/ismailbaskin/external-dns-yandex-webhook:{{ trimprefix .Tag "v" }}-arm64
+  prerelease: auto
+  replace_existing_draft: true

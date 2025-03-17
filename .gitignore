@@ -1,0 +1,7 @@
+build/
+
+# vim swap files
+.*.sw*
+clouds.yaml
+
+coverage.out
