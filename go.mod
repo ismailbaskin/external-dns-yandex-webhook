@@ -3,7 +3,7 @@ module external-dns-yandex-webhook
 go 1.24
 
 require (
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.20.0
 	github.com/yandex-cloud/go-genproto v0.0.0-20250304111827-f558b88ff434
 	github.com/yandex-cloud/go-sdk v0.0.0-20250313132200-7e0e95e410f2
