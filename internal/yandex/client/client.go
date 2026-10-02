@@ -22,8 +22,11 @@ import (
 	"os"
 
 	"github.com/yandex-cloud/go-genproto/yandex/cloud/dns/v1"
-	ycsdk "github.com/yandex-cloud/go-sdk"
-	"github.com/yandex-cloud/go-sdk/iamkey"
+	dnssdk "github.com/yandex-cloud/go-sdk/services/dns/v1"
+	ycsdk "github.com/yandex-cloud/go-sdk/v2"
+	"github.com/yandex-cloud/go-sdk/v2/credentials"
+	"github.com/yandex-cloud/go-sdk/v2/pkg/iamkey"
+	"github.com/yandex-cloud/go-sdk/v2/pkg/options"
 )
 
 type YandexDNSClient interface {
@@ -53,39 +56,42 @@ type Zone struct {
 }
 
 type YandexClient struct {
-	sdk      *ycsdk.SDK
+	dnsZone  dnssdk.DnsZoneClient
 	folderID string
 }
 
-func NewYandexClient(folderID string, authKeyFile string) (*YandexClient, error) {
-	if authKeyFile == "" {
-		return nil, fmt.Errorf("auth-key-file must be set")
+func NewYandexClient(folderID string, authKeyFile string, useWorkloadIdentity bool) (*YandexClient, error) {
+	var credsOption options.Option
+
+	if useWorkloadIdentity {
+		credsOption = options.WithCredentials(credentials.InstanceServiceAccount())
 	}
 
-	saBytes, err := os.ReadFile(authKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read service account key file: %v", err)
+	if authKeyFile != "" {
+		saBytes, err := os.ReadFile(authKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read service account key file: %v", err)
+		}
+
+		key := &iamkey.Key{}
+		if err := key.UnmarshalJSON(saBytes); err != nil {
+			return nil, fmt.Errorf("failed to parse service account key: %v", err)
+		}
+
+		creds, err := credentials.ServiceAccountKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create credentials: %v", err)
+		}
+		credsOption = options.WithCredentials(creds)
 	}
 
-	key := &iamkey.Key{}
-	if err := key.UnmarshalJSON(saBytes); err != nil {
-		return nil, fmt.Errorf("failed to parse service account key: %v", err)
-	}
-
-	credentials, err := ycsdk.ServiceAccountKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create credentials: %v", err)
-	}
-
-	sdk, err := ycsdk.Build(context.Background(), ycsdk.Config{
-		Credentials: credentials,
-	})
+	sdk, err := ycsdk.Build(context.Background(), credsOption)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Yandex Cloud SDK: %v", err)
 	}
 
 	return &YandexClient{
-		sdk:      sdk,
+		dnsZone:  dnssdk.NewDnsZoneClient(sdk),
 		folderID: folderID,
 	}, nil
 }
@@ -100,7 +106,7 @@ func (c *YandexClient) ListZones(ctx context.Context) ([]Zone, error) {
 			PageToken: pageToken,
 		}
 
-		resp, err := c.sdk.DNS().DnsZone().List(ctx, req)
+		resp, err := c.dnsZone.List(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list zones: %v", err)
 		}
@@ -127,7 +133,7 @@ func (c *YandexClient) ListRecordSets(ctx context.Context, zoneID string) ([]Rec
 		DnsZoneId: zoneID,
 	}
 
-	resp, err := c.sdk.DNS().DnsZone().ListRecordSets(ctx, req)
+	resp, err := c.dnsZone.ListRecordSets(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list record sets: %v", err)
 	}
@@ -184,7 +190,7 @@ func (c *YandexClient) UpsertRecordSets(ctx context.Context, req UpsertRequest) 
 		Merges:       merges,
 	}
 
-	_, err := c.sdk.DNS().DnsZone().UpsertRecordSets(ctx, upsertReq)
+	_, err := c.dnsZone.UpsertRecordSets(ctx, upsertReq)
 	if err != nil {
 		return fmt.Errorf("failed to upsert record sets: %v", err)
 	}

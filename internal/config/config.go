@@ -8,14 +8,16 @@ import (
 )
 
 type Config struct {
-	FolderID    string       `mapstructure:"folder_id"`
-	AuthKeyFile string       `mapstructure:"auth_key_file"`
-	Server      ServerConfig `mapstructure:"server"`
+	FolderID            string       `mapstructure:"folder_id"`
+	AuthKeyFile         string       `mapstructure:"auth_key_file"`
+	UseWorkloadIdentity bool         `mapstructure:"use_workload_identity"`
+	Server              ServerConfig `mapstructure:"server"`
 }
 
 type ServerConfig struct {
-	WebhookPort int `mapstructure:"webhook_port"`
-	HealthPort  int `mapstructure:"health_port"`
+	NetworkInterface string `mapstructure:"network_interface"`
+	WebhookPort      int    `mapstructure:"webhook_port"`
+	HealthPort       int    `mapstructure:"health_port"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -30,7 +32,9 @@ func LoadConfig() (*Config, error) {
 
 	// Define CLI flags
 	pflag.String("folder-id", "", "Yandex Cloud folder ID")
-	pflag.String("auth-key-file", "/etc/kubernetes/key.json", "Path to Yandex Cloud service account key file")
+	pflag.String("auth-key-file", "", "Path to Yandex Cloud service account key file")
+	pflag.Bool("use-workload-identity", false, "Use workload identity as auth method")
+	pflag.String("network-interface", "0.0.0.0", "Network interface to bind webhook server too")
 	pflag.Int("webhook-port", 8888, "Port for webhook server")
 	pflag.Int("health-port", 8080, "Port for health check server")
 	pflag.Parse()
@@ -42,16 +46,23 @@ func LoadConfig() (*Config, error) {
 	if err := viper.BindPFlag("auth_key_file", pflag.Lookup("auth-key-file")); err != nil {
 		return nil, fmt.Errorf("error binding auth-key-file flag: %v", err)
 	}
+	if err := viper.BindPFlag("use_workload_identity", pflag.Lookup("use-workload-identity")); err != nil {
+		return nil, fmt.Errorf("error binding use-workload-identity flag: %v", err)
+	}
 	if err := viper.BindPFlag("server.webhook_port", pflag.Lookup("webhook-port")); err != nil {
 		return nil, fmt.Errorf("error binding webhook-port flag: %v", err)
 	}
 	if err := viper.BindPFlag("server.health_port", pflag.Lookup("health-port")); err != nil {
 		return nil, fmt.Errorf("error binding health-port flag: %v", err)
 	}
+	if err := viper.BindPFlag("server.network_interface", pflag.Lookup("network-interface")); err != nil {
+		return nil, fmt.Errorf("error binding network-interface flag: %v", err)
+	}
 
 	// Set default values
 	viper.SetDefault("server.webhook_port", 8888)
 	viper.SetDefault("server.health_port", 8080)
+	viper.SetDefault("server.network_interface", "0.0.0.0")
 
 	// Read configuration file
 	if err := viper.ReadInConfig(); err != nil {
@@ -67,11 +78,17 @@ func LoadConfig() (*Config, error) {
 
 	// Validate required fields
 	if config.FolderID == "" {
-		return nil, fmt.Errorf("folder_id configuration is required")
+		return nil, fmt.Errorf("folder-id configuration is required")
 	}
 
-	if config.AuthKeyFile == "" {
-		return nil, fmt.Errorf("auth_key_file configuration is required")
+	authKeyFileUsed := config.AuthKeyFile != ""
+
+	if !authKeyFileUsed && !config.UseWorkloadIdentity {
+		return nil, fmt.Errorf("auth-key-file or use-workload-identity configuration is required")
+	}
+
+	if authKeyFileUsed && config.UseWorkloadIdentity {
+		return nil, fmt.Errorf("auth-key-file and use-workload-identity cant be used together")
 	}
 
 	return &config, nil

@@ -1,6 +1,8 @@
 folder_id: ""
 auth_key_file: ""
+use_workload_identity: false
 
 server:
   webhook_port: 8888
   health_port: 8080 
+  network_interface: 0.0.0.0

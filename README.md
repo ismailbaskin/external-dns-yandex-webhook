@@ -33,17 +33,26 @@ The referenced `extraVolumeMount` points to a `Secret` containing the service ac
 
 ## Command Line Arguments
 
-The webhook requires the following command line arguments:
+| Argument | Description | Default |
+| --- | --- | --- |
+| `--folder-id` | Yandex Cloud folder ID where your DNS zones are located. Required. | None |
+| `--auth-key-file` | Path to the Yandex Cloud service account key file. Required unless workload identity is used. | None |
+| `--use-workload-identity` | Use workload identity for authentication. Cannot be used with `--auth-key-file`. | `false` |
+| `--network-interface` | Network interface on which the webhook server listens. | `0.0.0.0` |
+| `--webhook-port` | Port on which the webhook server listens. | `8888` |
+| `--health-port` | Port on which the health check server listens. | `8080` |
 
-- `--folder-id`: Yandex Cloud folder ID where your DNS zones are located.
-- `--auth-key-file`: Path to the Yandex Cloud service account key file.
+Provide either `--auth-key-file` or `--use-workload-identity`.
 
 ## Authentication
 
-For authentication, this webhook uses a service account key file. To create one:
+Create a service account in Yandex Cloud with the necessary permissions for DNS management
 
-1. Create a service account in Yandex Cloud with the necessary permissions for DNS management
-2. Create a service account key using the Yandex Cloud CLI:
+### Service account key
+
+For authentication, with a service account key file:
+
+1. Create a service account key using the Yandex Cloud CLI:
 
 ```shell
 # Install Yandex Cloud CLI if you haven't already
@@ -56,7 +65,7 @@ yc iam key create iamkey \
   --output=key.json
 ```
 
-3. Add this file to your Kubernetes Secret
+2. Add this file to your Kubernetes Secret
 
 Create a Secret with the service account key file:
 
@@ -71,4 +80,43 @@ extraVolumes:
   - name: yandexconfig
     secret:
       secretName: yandexconfig
+```
+
+### Workload identity
+
+For authentication, with workload identity
+
+1. Add yandex iam workload identity oidc federation for k8s cluster
+
+```
+ISSUER_URL="https://storage.yandexcloud.net/mk8s-oidc/v1/clusters/<cluster-id>"
+JWKS_URL="${ISSUER_URL}/jwks.json"
+
+yc iam workload-identity oidc federation create \
+  --name my-k8s-federation \
+  --issuer "${ISSUER_URL}" \
+  --audiences "${ISSUER_URL}" \
+  --jwks-url "${JWKS_URL}"
+```
+
+2. create a federated credential for Yandex IAM service account with appropriate dns permissions
+
+```
+FEDERATION_ID=$(
+  yc iam workload-identity oidc federation get my-k8s-federation \
+    --format json |
+  jq -r '.id'
+)
+yc iam workload-identity federated-credential create \
+  --service-account-id <YC_SERVICE_ACCOUNT_ID> \
+  --federation-id "${FEDERATION_ID}" \
+  --external-subject-id \
+    "system:serviceaccount:<K8S_NAMESPACE>:<K8S_SERVICE_ACCOUNT>"
+```
+
+3. Add annotation to k8s service account that is used by external dns pod
+
+```
+  annotations:
+    yandex.cloud/federated-yc-service-account-id: <YC_SERVICE_ACCOUNT_ID>
 ```
